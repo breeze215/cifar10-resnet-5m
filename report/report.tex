@@ -1,0 +1,360 @@
+\documentclass{article}
+\usepackage{arxiv}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts,amsmath}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{natbib}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=*}
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue!60!black}
+\renewcommand{\headeright}{}
+\renewcommand{\undertitle}{Project report}
+\renewcommand{\shorttitle}{NYU Tandon Deep Learning F26, Project 1 --- SE-ResNet-26 under 5M parameters}
+\date{November 2026}
+\newcommand{\pts}{\,pt}
+% Private leaderboard scores (released after the Nov 6 deadline): fill these three in.
+\newcommand{\PrivFinal}{TBD}
+\newcommand{\PrivFinalTwo}{TBD}
+\newcommand{\PrivVTwo}{TBD}
+
+\title{An SE-ResNet-26 Under 5M Parameters for CIFAR-10:\\What Helped, What Did Not, and Why}
+
+\author{
+  Uvindu Salgado \\ NetID uis202 \\ \texttt{uis202@nyu.edu}
+  \And
+  Michael Wang \\ NetID mzw2010 \\ \texttt{mzw2010@nyu.edu}
+}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+\textbf{Kaggle team:} Punters \quad$\cdot$\quad
+\textbf{Code:} \url{https://github.com/breeze215/cifar10-resnet-5m}
+\end{center}
+
+\begin{abstract}
+We design and train a residual network with at most 5 million parameters for the course's CIFAR-10 Kaggle
+challenge, whose hidden test set is drawn from a different distribution than the training images. Our final model,
+an SE-ResNet-26 with 4,810,754 trainable parameters trained from scratch, reaches 97.9\% accuracy on a held-out
+validation split and \textbf{89.7\%} on the public leaderboard (private: \textbf{\PrivFinal}). We ran thirteen
+training runs (ten distinct experiments) and report all of them, including the ones that failed. The largest leaderboard gain (+3.0 points)
+came from stronger data augmentation. After that, further validation gains of up to +0.5 points, sharpness-aware
+minimization, knowledge distillation and augmentation aimed at robustness all left the public score between
+89.0\% and 89.9\%. We trace this to two causes: the test images are brighter, higher in contrast and more often
+grayscale than the training images, so in-distribution gains transfer only partially; and a 1,000-image
+leaderboard has a standard error of about one point, larger than most of the differences we were chasing.
+\end{abstract}
+
+\section{Overview}
+
+The task is to classify $32\times32$ CIFAR-10 images \citep{krizhevsky2009cifar} with a convolutional network
+containing residual connections, using at most 5M trainable parameters, no pretrained weights and no external
+data. Models are trained on the 50,000 labeled training images and scored on a hidden set of 2,000 images, split
+into a public half (shown during the competition) and a private half (used for the final ranking).
+
+\paragraph{Summary of findings.}
+\begin{itemize}
+  \item \textbf{Final model.} SE-ResNet-26: three stages of 5/4/3 BasicBlocks at 64/128/256 channels with
+  squeeze-and-excitation gates \citep{hu2018se}, 4,810,754 parameters, trained for 600 epochs with TrivialAugment
+  \citep{muller2021trivialaugment}, CutMix \citep{yun2019cutmix}, label smoothing, an exponential moving average of the
+  weights and test-time augmentation. Validation accuracy 97.90\%; public leaderboard 89.7\%.
+  \item \textbf{What moved the leaderboard.} Replacing a basic crop/flip/Cutout pipeline with TrivialAugment, CutMix and
+  weight averaging (together with a deeper network) raised the public score from 86.9\% to 89.9\%.
+  \item \textbf{What did not.} Training on all 50k images, SAM \citep{foret2021sam}, AugMix \citep{hendrycks2020augmix},
+  distillation \citep{hinton2015distilling}, the deeper SE network (+0.5 points on validation) and robustness-oriented
+  augmentation (+0.6 points on shifted validation images) all scored between 89.0\% and 89.8\% on the public leaderboard.
+  \item \textbf{Why.} The hidden test set is shifted relative to the training data (Section~\ref{sec:shift}), and the public
+  score is too noisy to resolve sub-point differences (Section~\ref{sec:noise}). We therefore chose our two final
+  submissions by validation and robustness evidence, not by public score.
+\end{itemize}
+
+\section{Methodology}
+
+\subsection{Evaluation protocol}
+Every validation number in this report uses the same 5,000 images, held out from the training set with a fixed seed
+(seed 0); these images are never used for training, early stopping or tuning other than as reported. Validation
+accuracy is computed with the EMA weights and averaged over the image and its horizontal flip. For submissions we
+retrain the chosen recipe on all 50,000 images (a ``full'' run, which has no validation split) and predict with 10 views
+(2 flips $\times$ 5 shifts of $\pm$2 pixels). Training ran on Kaggle NVIDIA T4 GPUs in mixed precision
+\citep{micikevicius2018mixed} with PyTorch \citep{paszke2019pytorch}; we usually ran two jobs at once, one per GPU.
+
+\subsection{Architecture}
+\label{sec:arch}
+A residual block computes $\mathrm{ReLU}(S(x) + F(x))$, where $F$ is conv$3{\times}3$--BN--ReLU--conv$3{\times}3$--BN
+\citep{he2016resnet,ioffe2015bn} and $S$ is the identity, or a $1{\times}1$ convolution with BN when the shape changes.
+Following the usual CIFAR convention (as in \citealp{kuangliu2017pytorchcifar}), the stem is a single $3{\times}3$,
+stride-1 convolution with no max-pooling, so the first stage works at full $32\times32$ resolution.
+
+\paragraph{Where the parameter budget goes.} The budget rules out the standard four-stage ResNet-18 widths: a single
+block at 512 channels costs 3.67M parameters. We therefore use three stages (resolutions 32, 16 and 8) and spend the
+budget on depth. Table~\ref{tab:arch} lists the three architectures we trained. v1 used fewer, wider blocks; v2 went
+deeper at standard widths, the same layout as a previous project in this course \citep{thakur2023efficient}; the final
+network adds one block to the first stage and an SE gate to every block. SE costs only 39,608 parameters
+(0.8\% of the total), and adding one more block to stage~2 instead would have exceeded the budget (5,033,282).
+
+\begin{table}[h]
+\centering\small
+\caption{Architectures we trained. Layer counts follow the ResNet-18 convention (main-path convolutions plus the
+classifier). MACs: multiply-accumulates per $32\times32$ image.}
+\label{tab:arch}
+\begin{tabular}{lccccc}
+\toprule
+Model & Widths & Blocks per stage & Layers & Params & MACs \\
+\midrule
+v1 ResNet-14 & 80 / 160 / 320 & 2 / 2 / 2 & 14 & 4,337,370 & 658M \\
+v2 ResNet-24 & 64 / 128 / 256 & 4 / 4 / 3 & 24 & 4,697,162 & 799M \\
+\textbf{Final: SE-ResNet-26} & 64 / 128 / 256 & 5 / 4 / 3 + SE & 26 & \textbf{4,810,754} & 874M \\
+\midrule
+\textit{WRN-28-10 (teacher, not trained)} & 160 / 320 / 640 & 4 / 4 / 4 & 28 & 36,479,194 & 5,243M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Training recipe}
+All runs use SGD with Nesterov momentum 0.9 \citep{sutskever2013momentum}, learning rate 0.1 with a 5-epoch linear
+warm-up and cosine decay \citep{loshchilov2017sgdr}, weight decay $5\times10^{-4}$ (not applied to BN and bias
+parameters), batch size 128, and label smoothing 0.1 \citep{szegedy2016inception}. v1 used reflect-padded random
+crops, horizontal flips and Cutout \citep{devries2017cutout}. From v2 on we add TrivialAugmentWide (one random
+photometric or geometric operation per image), RandomGrayscale ($p=0.05$), CutMix on half of the batches, and an
+exponential moving average (EMA) of the weights with decay 0.9995 \citep{polyak1992averaging}, which we use for all
+evaluation. The final model trains for 600 epochs (about 32\,s per epoch on a T4).
+
+\subsection{The sequence of experiments}
+Table~\ref{tab:runs} lists every run in the order we ran them. Each step was a response to the previous result;
+Section~\ref{sec:wrong} explains the failures.
+
+\begin{table}[t]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{All runs. Val: EMA accuracy on our 5k split (flip-averaged). Runs marked ``50k'' train on all images and
+have no validation split; their val column shows the matching 45k run. Public: Kaggle public leaderboard (1,000 images).
+$^\dagger$Both v3 runs were uploaded from one notebook version and scored 89.0 and 89.3; we did not record which was which.}
+\label{tab:runs}
+\begin{tabular}{rllccc}
+\toprule
+\# & Run & Change from previous & Epochs & Val (\%) & Public (\%) \\
+\midrule
+1 & v1 & ResNet-14; crop, flip, Cutout, label smoothing & 200 & 96.66 & 86.9 \\
+2 & v2 & ResNet-24; TrivialAugment, grayscale, CutMix, EMA, TTA & 300 & 97.40 & \textbf{89.9} \\
+3 & v3 full & v2 recipe on all 50k images & 300 & (97.40) & 89.0 / 89.3$^\dagger$ \\
+4 & v3 SAM & v2 + SAM ($\rho=0.05$) & 200 & 97.22 & 89.3 / 89.0$^\dagger$ \\
+5 & AugMix (MW) & v2 with AugMix instead of TrivialAugment & 300 & 97.20 & 89.4 \\
+6 & v2 50k (MW) & v2 on 50k, RandomGrayscale removed & 300 & (97.40) & 89.8 \\
+7 & distillation & v2 student; teachers v2 + SAM (50k run submitted) & 200 & 97.34 & 89.0 \\
+8 & \textbf{v4} (\texttt{final}) & SE-ResNet-26, 600 epochs (50k run submitted) & 600 & \textbf{97.90} & 89.7 \\
+9 & \textbf{robust} (\texttt{final\textasciicircum2}) & v4 + AugMix$|$TrivialAugment, jitter, blur & 600 & 97.82 & 89.6 \\
+10 & hard-view fine-tune & continue v4 on hardest-of-two views & +200 & 97.44 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{What went wrong, and why}
+\label{sec:wrong}
+
+\subsection{Validation accuracy stopped predicting the leaderboard}
+\label{sec:shift}
+Going from v1 to v2 added 0.74 points of validation accuracy and 3.0 points on the public leaderboard. Going from v2
+to v4 added another 0.50 points of validation accuracy and \emph{lost} 0.2 points on the public leaderboard
+(Figure~\ref{fig:valpub}). The 8-point gap between validation (97--98\%) and test (89--90\%) accuracy is much larger
+than the validation error itself, so the test images are very unlikely to come from the training distribution.
+
+We compared aggregate pixel statistics of the training images with those of the (unlabeled) test images
+(Table~\ref{tab:shift}). The test images are brighter, higher in contrast, sharper, and three times as likely to be
+grayscale. Together with the size of the gap, this resembles re-collected test sets such as CIFAR-10.1
+\citep{recht2018cifar,recht2019imagenet}, on which models typically lose several points while keeping their ranking, the
+``accuracy on the line'' effect \citep{miller2021line}. It explains both observations. v2's augmentation
+(TrivialAugment's brightness, contrast, colour and sharpness operations, plus grayscale) covered exactly these
+directions and produced the big gain. Once they were covered, better in-distribution accuracy translated only weakly
+into test accuracy.
+
+\begin{figure}[h]
+\centering
+\begin{minipage}[c]{0.47\linewidth}
+  \includegraphics[width=\linewidth]{../figures/fig_val_vs_public.pdf}
+  \caption{Validation vs.\ public accuracy. Error bars: $\pm1$ binomial s.e.\ of a 1,000-image score
+  ($\pm$0.95\pts). After v2 every point sits within noise of 89.5\%.}
+  \label{fig:valpub}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.5\linewidth}
+  \centering\small
+  \captionof{table}{Training vs.\ hidden test images (pixel statistics only; test labels never used).}
+  \label{tab:shift}
+  \begin{tabular}{lccc}
+  \toprule
+  Statistic & Train & Test & Ratio \\
+  \midrule
+  Mean intensity & 0.473 & 0.491 & 1.04 \\
+  Per-image contrast (std) & 0.211 & 0.220 & 1.04 \\
+  Edge energy (mean $|\partial_x|$) & 0.054 & 0.059 & 1.08 \\
+  Grayscale images & 1.1\% & 3.3\% & 2.9 \\
+  \bottomrule
+  \end{tabular}
+\end{minipage}
+\end{figure}
+
+\paragraph{A rules question we had to answer.} Looking at unlabeled test-image statistics uses no labels, but choosing
+augmentation from them is close to using the evaluation set for model selection, which the rules forbid. One of our
+choices, RandomGrayscale($p=0.05$), was motivated this way. To make sure our results do not depend on it, Michael
+re-trained v2 on all 50k images \emph{without} it (run 6): it scored 89.8\%, the same as v2's 89.9\%. Every other
+augmentation we use is a standard, untuned method.
+
+\subsection{We mistook leaderboard noise for regressions}
+\label{sec:noise}
+After v2 we trained the same recipe on all 50k images and, separately, with SAM. Both scored lower on the public
+leaderboard (89.0 and 89.3), and we initially read that as ``both did worse''. That conclusion was not supported by the
+data. A score on 1,000 images has a binomial standard error of $\sqrt{0.9\cdot0.1/1000}\approx0.95$ points. A sharper
+estimate comes from comparing our submissions with each other: two of our models disagree on a median of
+6.2\% of the test images. If two models are equally accurate, each disagreement is roughly a coin flip, so their
+public scores differ with standard deviation $\approx\sqrt{d/1000}=$ 0.8 points. The spread of our post-v2 scores
+(89.0--89.9) is about what this predicts. The full-data model cannot plausibly be worse than v2: it uses the identical
+recipe with 10\% more data. From this point on we compared models on validation accuracy, and on a robustness
+scorecard we built for the purpose (Section~\ref{sec:robust}), and used the leaderboard only as a sanity check.
+
+\subsection{SAM: an unequal comparison}
+SAM reached 97.22\% after 200 epochs, against v2's 97.40\% after 300. Since SAM costs two forward and backward passes
+per step, we gave it fewer epochs to keep the wall-clock time comparable. That makes the comparison confounded: we
+cannot tell whether SAM hurt or simply needed the full schedule. With a fixed GPU quota (30 hours per week on Kaggle)
+we did not rerun it, and we do not claim SAM fails here.
+
+\subsection{Distillation: teachers that were too similar}
+Distillation is explicitly allowed when the teacher is trained from scratch on the permitted data, so we distilled
+our own models into a v2-sized student, with temperature 2, a 0.9 weight on the distillation term, and the teacher and
+student seeing the same augmented batch \citep{beyer2022patient}. On validation the student (97.34\%) did not beat its
+best teacher (v2, 97.40\%). The diagnosis is that the ensemble of v2 and SAM scored only 97.52\%, just 0.12 points above
+v2, because two models with the same architecture and augmentation make largely the same errors and so give the
+student little new information. Michael found that pairing v2 with the AugMix model, which was trained differently,
+raised the ensemble to 97.68\% (+0.28), confirming that diversity is what matters. Our teachers were also trained
+with label smoothing, which is known to make worse teachers \citep{muller2019labelsmoothing}.
+
+We also considered a large teacher. The rules allow a teacher of any size (only the final model is capped), so we
+implemented a WRN-28-10 \citep{zagoruyko2016wrn} with 36.5M parameters, with a guard that refuses to write
+predictions for any model over 5M. We dropped it before training once v4 reached 97.90\%: the published result for a
+WRN-28-10 trained with TrivialAugment is about 97.5\% \citep{muller2021trivialaugment}, so at our budget the teacher was
+unlikely to beat the student, and training it would have used about half of our remaining GPU quota.
+
+\subsection{Robustness gains in the wrong directions}
+\label{sec:robust}
+Because the leaderboard could not measure small improvements, we built a robustness scorecard: validation accuracy
+on seven deterministic shifts of our own validation images. The shifts are brightness +15\%, contrast +25\%,
+sharpening, blur, grayscale, JPEG at quality 60 and Gaussian noise, inspired by CIFAR-10-C \citep{hendrycks2019corruptions}.
+JPEG and noise never appear in training. Our robust recipe replaced TrivialAugment with a random choice between
+TrivialAugment and AugMix and added per-image colour jitter, grayscale and blur, which we moved to the GPU because
+AugMix alone made the CPU data loader too slow to keep up with the GPU. It raised mean shifted accuracy from 94.27\% to
+94.87\% (+2.3 points on the held-out JPEG shift, +1.8 on blur) at almost no cost in clean accuracy (Figure~\ref{fig:score}).
+It did not raise the public score (89.6 vs.\ 89.7). The scorecard explains why: on the directions in which the test
+set actually differs (brightness, contrast, sharpness and grayscale), v4 and the robust model are already within
+0.2 points of each other. Michael's earlier AugMix run showed the same pattern: +3.2 points on his own 7-corruption
+benchmark, but 89.4\% on the leaderboard.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{../figures/fig_scorecard.pdf}
+\caption{Robustness scorecard on shifted copies of our 5k validation images (EMA weights, flip-averaged).
+The robust recipe gains most on blur and JPEG, which do not resemble the test shift; on brightness, contrast,
+sharpening and grayscale it is level with v4.}
+\label{fig:score}
+\end{figure}
+
+\subsection{Fine-tuning from a converged model}
+Our last experiment continued training the v4 validation checkpoint for 200 more epochs, replacing two thirds of the
+images in each batch with the harder of two random photometric views, in the spirit of AugMax
+\citep{wang2021augmax}. Restarting at learning rate 0.018 knocked clean accuracy from 97.90\% to 84.3\% within two
+epochs, and the run only recovered to 97.44\% (10-view: 97.86\%~$\rightarrow$~97.48\%). A converged model sits in a
+narrow region of weight space; a fresh high-learning-rate phase undoes most of what the cosine schedule achieved, and
+200 epochs were not enough to recover.
+
+\subsection{Engineering mistakes}
+\begin{itemize}
+  \item \textbf{A false alarm from float32 arithmetic.} Our first comparison of train and test statistics showed a
+  training-set mean of 0.328 in every channel, far from CIFAR-10's 0.49/0.48/0.45, which suggested the training set had
+  been darkened. The cause was float32 accumulation error over $1.5\times10^8$ values; recomputing in float64 gave the
+  expected values. Since then all statistics, including the normalisation constants, are computed in float64.
+  \item \textbf{Path assumptions.} Our first Kaggle run failed because the competition data was mounted one directory
+  deeper than expected; the script now searches for \texttt{train\_labels.csv}.
+  \item \textbf{A race condition.} Running two jobs in one session, both processes wrote the same image-cache file at
+  once. We caught this in a local test, before it cost GPU time, and fixed it with per-process temporary files and an
+  atomic rename.
+  \item \textbf{Naming.} Our code calls v2 ``ResNet-26''; by the standard convention it has 24 layers, and the final model
+  26. This report uses the corrected names.
+\end{itemize}
+
+\section{Results}
+
+\paragraph{Final model.} SE-ResNet-26 (Table~\ref{tab:arch}): stem conv$3{\times}3$ with 64 channels; stage 1 has five
+blocks at 64 channels and $32\times32$; stage 2 has four blocks at 128 channels and $16\times16$; stage 3 has three
+blocks at 256 channels and $8\times8$. Each block has an SE gate with reduction 16, and the network ends with global
+average pooling and a 256$\rightarrow$10 linear layer. It has \textbf{4,810,754 trainable parameters}
+(68.7\% in stage 3, 23.4\% in stage 2, 7.8\% in stage 1; the SE gates account for 39,608 or 0.8\%). We submitted two variants, both trained on all 50k images for 600 epochs:
+\texttt{final} (v4 recipe) and \texttt{final\textasciicircum2} (robust recipe).
+
+\begin{table}[h]
+\centering\small
+\caption{Final results. Validation numbers come from the 45k twin of each submission (same recipe and seed). Private
+scores were released after the deadline and decide the ranking.}
+\label{tab:final}
+\begin{tabular}{lcccccc}
+\toprule
+Submission & Params & Val (flip) & Val (10-view) & Shifted val & Public & Private \\
+\midrule
+\texttt{final} (v4) & 4,810,754 & 97.90\% & 97.86\% & 94.27\% & 89.7\% & \PrivFinal \\
+\texttt{final\textasciicircum2} (robust) & 4,810,754 & 97.82\% & 97.92\% & 94.87\% & 89.6\% & \PrivFinalTwo \\
+v2 (best public score) & 4,697,162 & 97.40\% & 97.54\% & 93.65\% & 89.9\% & \PrivVTwo \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure~\ref{fig:curves} shows training curves. With heavy augmentation, validation accuracy keeps climbing as the
+learning rate decays: the last 20\% of the schedule still adds 1.2--1.4 points (v4: 96.6\%~$\rightarrow$~97.9\%; v2:
+96.0\%~$\rightarrow$~97.4\%), consistent with longer schedules helping. v1, with weak augmentation, shows the clearest
+overfitting: 99.45\% training accuracy against 96.66\% on validation.
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=\linewidth]{../figures/fig_curves.pdf}
+\caption{Training loss and validation accuracy (EMA) for every run with a validation split. Loss levels are not
+comparable across recipes, because CutMix, label smoothing and distillation change the targets.}
+\label{fig:curves}
+\end{figure}
+
+\paragraph{Reproducibility.} The repository contains the exact script and executed Kaggle notebook for every run,
+the EMA checkpoints of both submissions and their validation twins, and \texttt{results.ipynb}. That notebook prints
+the parameter counts, recomputes validation accuracy from the checkpoints (it reproduces the logged values exactly: 97.40\%, 97.90\% and 97.82\% for v2, v4 and robust), and regenerates both submission
+files (the regenerated predictions agree with the uploaded files on 2,000 of 2,000 test images for \texttt{final} and 1,999 of 2,000 for \texttt{final\textasciicircum2}).
+
+\section{Lessons and limitations}
+\begin{itemize}
+  \item \textbf{Measure the noise before chasing a leaderboard.} After v2, almost every change we made moved the public
+  score by less than its resolution, and we read two of those moves as regressions. Computing the standard error and the
+  disagreement between submissions first would have told us to rely on validation sooner.
+  \item \textbf{Validation accuracy and test accuracy diverge under distribution shift.} Augmentation that covers the
+  directions of the shift helped a lot; generic robustness and extra in-distribution accuracy helped little.
+  \item \textbf{Diversity beats similarity in distillation and ensembling.} Same-recipe teachers added almost nothing.
+  \item \textbf{Compare at equal budgets.} Our SAM comparison was confounded by its shorter schedule.
+  \item \textbf{Limitations.} One seed per configuration; no confidence intervals on validation differences below
+  about 0.2 points (the binomial s.e.\ on 5,000 images); several changes were made together (v1$\rightarrow$v2), so their
+  individual contributions are not separated.
+\end{itemize}
+
+\paragraph{Contributions.} Uvindu Salgado built the training pipeline (v1--v6), the distillation, SE and robustness
+experiments, the robustness scorecard and the analysis. Michael Wang ran the AugMix experiment with its corruption
+benchmark, the v2 re-run on 50k images without grayscale, and the teacher-diversity analysis.
+
+\paragraph{Acknowledgements.} Our residual block, CIFAR-style stem and baseline optimizer settings (SGD, learning rate
+0.1, momentum 0.9, weight decay $5\times10^{-4}$, cosine schedule, crop and flip augmentation) follow the conventions
+of \citet{kuangliu2017pytorchcifar}. All code in our repository was written independently. The report uses the
+arxiv-style template \citep{kour2020arxivstyle}.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

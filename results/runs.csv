@@ -1,0 +1,14 @@
+run,author,order,script,kaggle_notebook,arch,params,epochs,train_images,recipe,val_flip,val_10view,public,private,submitted_as,final_pick
+v1,US,1,history/v1_train.py,a0c20e47d9,"ResNet [80,160,320]x[2,2,2]",4337370,200,45000,"crop+flip+Cutout16, label smoothing 0.1, SGD-Nesterov+cosine",0.9666,,0.869,,a0c20e47d9 Version 2,no
+v2,US,2,history/v2_train.py,b440766e5d,"ResNet-24 [64,128,256]x[4,4,3]",4697162,300,45000,"v1 -> TrivialAugmentWide + RandomGrayscale(0.05) + CutMix(0.5) + EMA + 10-view TTA",0.9740,0.9754,0.899,,b440766e5d second edit,no
+v3_full,US,3,history/v3_train_full_sam.py,af5086ebc6,"ResNet-24 [64,128,256]x[4,4,3]",4697162,300,50000,"v2 recipe on all 50k images",,,0.890|0.893,,af5086ebc6 Version 1,no
+v3_sam,US,4,history/v3_train_full_sam.py,af5086ebc6,"ResNet-24 [64,128,256]x[4,4,3]",4697162,200,45000,"v2 + SAM (rho=0.05)",0.9722,0.9720,0.893|0.890,,af5086ebc6 Version 1,no
+mw_augmix,MW,5,history/mw_augmix_train.py,5dcf51ade5,"ResNet-24 [64,128,256]x[4,4,3]",4697162,300,45000,"v2 with AugMix instead of TrivialAugmentWide; EMA also averages BN stats",0.9720,0.9730,0.894,,5dcf51ade5 Version 2,no
+mw_v2full,MW,6,history/mw_v2full_train.py,07196368f2,"ResNet-24 [64,128,256]x[4,4,3]",4697162,300,50000,"v2 recipe on all 50k, RandomGrayscale removed",,,0.898,,07196368f2 Version 2,no
+kd_val,US,7,history/kd_train.py,cecbf0a2c9,"ResNet-24 [64,128,256]x[4,4,3]",4697162,200,45000,"v2 + distillation from v2+SAM teachers (T=2, alpha=0.9)",0.9734,0.9740,,,,no
+kd_full,US,8,history/kd_train.py,cecbf0a2c9,"ResNet-24 [64,128,256]x[4,4,3]",4697162,200,50000,"v2 + distillation from v2+v3_full+SAM teachers, all 50k",,,0.890,,cecbf0a2c9 distill,no
+v4_val,US,9,history/v4_train.py,f20b2b0f4b,"SE-ResNet-26 [64,128,256]x[5,4,3]",4810754,600,45000,"v2 recipe + squeeze-excitation + one extra block, 600 epochs",0.9790,0.9786,,,,no
+v4_full,US,10,history/v4_train.py,f20b2b0f4b,"SE-ResNet-26 [64,128,256]x[5,4,3]",4810754,600,50000,"v4 on all 50k images",,,0.897,,f20b2b0f4b final,yes
+robust_val,US,11,history/v6_train_robust.py,ff524fce58,"SE-ResNet-26 [64,128,256]x[5,4,3]",4810754,600,45000,"v4 + TrivialAugment|AugMix + GPU colour jitter/grayscale(0.1)/blur",0.9782,0.9792,,,,no
+robust_full,US,12,history/v6_train_robust.py,ff524fce58,"SE-ResNet-26 [64,128,256]x[5,4,3]",4810754,600,50000,"robust recipe on all 50k images",,,0.896,,ff524fce58 final^2,yes
+hardview,US,13,history/hardview_finetune.py,(gpt run),"SE-ResNet-26 [64,128,256]x[5,4,3]",4810754,200,45000,"fine-tune v4_val with hard photometric view mining (AugMax-inspired)",0.9744,0.9748,,,,no

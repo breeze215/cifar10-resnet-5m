@@ -1,0 +1,9 @@
+# Tested with these versions (Kaggle images used torch 2.x with CUDA; results.ipynb also runs on CPU)
+torch>=2.3
+torchvision>=0.18      # transforms.v2: TrivialAugmentWide, AugMix, functional ops
+numpy>=1.26
+pandas>=2.0
+pillow>=10.0
+matplotlib>=3.8        # results.ipynb figures
+jupyter>=1.0           # results.ipynb
+kaggle>=1.6            # optional: downloading the competition data
