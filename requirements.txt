@@ -5,5 +5,6 @@ numpy>=1.26
 pandas>=2.0
 pillow>=10.0
 matplotlib>=3.8        # results.ipynb figures
+scipy>=1.11            # results.ipynb (rank correlation)
 jupyter>=1.0           # results.ipynb
 kaggle>=1.6            # optional: downloading the competition data

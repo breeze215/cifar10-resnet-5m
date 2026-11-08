@@ -1,4 +1,6 @@
-# SE-ResNet-26 under 5M parameters — NYU Tandon Deep Learning (Fall 2026), Project 1
+# An SE-ResNet-26 Under 5M Parameters for CIFAR-10
+
+NYU Tandon Deep Learning (Fall 2026), Project 1
 
 **Team Punters:** Uvindu Salgado (uis202@nyu.edu) · Michael Wang (mzw2010@nyu.edu)
 Kaggle competition: *NYU Tandon Deep Learning F26* (CIFAR-10 ResNet architecture challenge).
@@ -9,8 +11,11 @@ A ResNet with squeeze-and-excitation (SE) gates, **4,810,754 trainable parameter
 
 | Final submission | Model | Params | Val acc. (5k held-out)¹ | Kaggle public | Kaggle private |
 |---|---|---|---|---|---|
-| `final` | SE-ResNet-26, v4 recipe | 4,810,754 | 97.90% | 89.7% | *pending* |
-| `final^2` | SE-ResNet-26, robust-augmentation recipe | 4,810,754 | 97.82% | 89.6% | *pending* |
+| `final` | SE-ResNet-26, v4 recipe | 4,810,754 | 97.90% | 89.7% | **88.3%** |
+| `final^2` | SE-ResNet-26, robust augmentation recipe | 4,810,754 | 97.82% | 89.6% | 88.0% |
+
+**Final standing: 88.3% private accuracy, 11th place** (34th on the public leaderboard). We picked the two
+submissions by validation accuracy rather than public score, and they were our two best of ten on the private half.
 
 ¹ Measured on the twin run trained on 45k images (same recipe); the submitted models were retrained on all 50k.
 Every run, including the ones that did not work, is listed in [`results/runs.csv`](results/runs.csv) and discussed in the report.
